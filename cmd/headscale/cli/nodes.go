@@ -9,8 +9,8 @@ import (
 	"time"
 
 	survey "github.com/AlecAivazis/survey/v2"
-	"github.com/juanfont/headscale"
 	v1 "github.com/juanfont/headscale/gen/go/headscale/v1"
+	"github.com/juanfont/headscale/hscontrol/util"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
@@ -19,12 +19,24 @@ import (
 
 func init() {
 	rootCmd.AddCommand(nodeCmd)
-	listNodesCmd.Flags().StringP("namespace", "n", "", "Filter by namespace")
+	listNodesCmd.Flags().StringP("user", "u", "", "Filter by user")
 	listNodesCmd.Flags().BoolP("tags", "t", false, "Show tags")
+
+	listNodesCmd.Flags().StringP("namespace", "n", "", "User")
+	listNodesNamespaceFlag := listNodesCmd.Flags().Lookup("namespace")
+	listNodesNamespaceFlag.Deprecated = deprecateNamespaceMessage
+	listNodesNamespaceFlag.Hidden = true
+
 	nodeCmd.AddCommand(listNodesCmd)
 
-	registerNodeCmd.Flags().StringP("namespace", "n", "", "Namespace")
-	err := registerNodeCmd.MarkFlagRequired("namespace")
+	registerNodeCmd.Flags().StringP("user", "u", "", "User")
+
+	registerNodeCmd.Flags().StringP("namespace", "n", "", "User")
+	registerNodeNamespaceFlag := registerNodeCmd.Flags().Lookup("namespace")
+	registerNodeNamespaceFlag.Deprecated = deprecateNamespaceMessage
+	registerNodeNamespaceFlag.Hidden = true
+
+	err := registerNodeCmd.MarkFlagRequired("user")
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -63,9 +75,14 @@ func init() {
 		log.Fatalf(err.Error())
 	}
 
-	moveNodeCmd.Flags().StringP("namespace", "n", "", "New namespace")
+	moveNodeCmd.Flags().StringP("user", "u", "", "New user")
 
-	err = moveNodeCmd.MarkFlagRequired("namespace")
+	moveNodeCmd.Flags().StringP("namespace", "n", "", "User")
+	moveNodeNamespaceFlag := moveNodeCmd.Flags().Lookup("namespace")
+	moveNodeNamespaceFlag.Deprecated = deprecateNamespaceMessage
+	moveNodeNamespaceFlag.Hidden = true
+
+	err = moveNodeCmd.MarkFlagRequired("user")
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -80,6 +97,8 @@ func init() {
 	tagCmd.Flags().
 		StringSliceP("tags", "t", []string{}, "List of tags to add to the node")
 	nodeCmd.AddCommand(tagCmd)
+
+	nodeCmd.AddCommand(backfillNodeIPsCmd)
 }
 
 var nodeCmd = &cobra.Command{
@@ -90,12 +109,12 @@ var nodeCmd = &cobra.Command{
 
 var registerNodeCmd = &cobra.Command{
 	Use:   "register",
-	Short: "Registers a machine to your network",
+	Short: "Registers a node to your network",
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
-		namespace, err := cmd.Flags().GetString("namespace")
+		user, err := cmd.Flags().GetString("user")
 		if err != nil {
-			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
+			ErrorOutput(err, fmt.Sprintf("Error getting user: %s", err), output)
 
 			return
 		}
@@ -115,17 +134,17 @@ var registerNodeCmd = &cobra.Command{
 			return
 		}
 
-		request := &v1.RegisterMachineRequest{
-			Key:       machineKey,
-			Namespace: namespace,
+		request := &v1.RegisterNodeRequest{
+			Key:  machineKey,
+			User: user,
 		}
 
-		response, err := client.RegisterMachine(ctx, request)
+		response, err := client.RegisterNode(ctx, request)
 		if err != nil {
 			ErrorOutput(
 				err,
 				fmt.Sprintf(
-					"Cannot register machine: %s\n",
+					"Cannot register node: %s\n",
 					status.Convert(err).Message(),
 				),
 				output,
@@ -134,7 +153,9 @@ var registerNodeCmd = &cobra.Command{
 			return
 		}
 
-		SuccessOutput(response.Machine, "Machine register", output)
+		SuccessOutput(
+			response.GetNode(),
+			fmt.Sprintf("Node %s registered", response.GetNode().GetGivenName()), output)
 	},
 }
 
@@ -144,9 +165,9 @@ var listNodesCmd = &cobra.Command{
 	Aliases: []string{"ls", "show"},
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
-		namespace, err := cmd.Flags().GetString("namespace")
+		user, err := cmd.Flags().GetString("user")
 		if err != nil {
-			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
+			ErrorOutput(err, fmt.Sprintf("Error getting user: %s", err), output)
 
 			return
 		}
@@ -161,11 +182,11 @@ var listNodesCmd = &cobra.Command{
 		defer cancel()
 		defer conn.Close()
 
-		request := &v1.ListMachinesRequest{
-			Namespace: namespace,
+		request := &v1.ListNodesRequest{
+			User: user,
 		}
 
-		response, err := client.ListMachines(ctx, request)
+		response, err := client.ListNodes(ctx, request)
 		if err != nil {
 			ErrorOutput(
 				err,
@@ -177,12 +198,12 @@ var listNodesCmd = &cobra.Command{
 		}
 
 		if output != "" {
-			SuccessOutput(response.Machines, "", output)
+			SuccessOutput(response.GetNodes(), "", output)
 
 			return
 		}
 
-		tableData, err := nodesToPtables(namespace, showTags, response.Machines)
+		tableData, err := nodesToPtables(user, showTags, response.GetNodes())
 		if err != nil {
 			ErrorOutput(err, fmt.Sprintf("Error converting to table: %s", err), output)
 
@@ -204,7 +225,7 @@ var listNodesCmd = &cobra.Command{
 
 var expireNodeCmd = &cobra.Command{
 	Use:     "expire",
-	Short:   "Expire (log out) a machine in your network",
+	Short:   "Expire (log out) a node in your network",
 	Long:    "Expiring a node will keep the node in the database and force it to reauthenticate.",
 	Aliases: []string{"logout", "exp", "e"},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -225,16 +246,16 @@ var expireNodeCmd = &cobra.Command{
 		defer cancel()
 		defer conn.Close()
 
-		request := &v1.ExpireMachineRequest{
-			MachineId: identifier,
+		request := &v1.ExpireNodeRequest{
+			NodeId: identifier,
 		}
 
-		response, err := client.ExpireMachine(ctx, request)
+		response, err := client.ExpireNode(ctx, request)
 		if err != nil {
 			ErrorOutput(
 				err,
 				fmt.Sprintf(
-					"Cannot expire machine: %s\n",
+					"Cannot expire node: %s\n",
 					status.Convert(err).Message(),
 				),
 				output,
@@ -243,13 +264,13 @@ var expireNodeCmd = &cobra.Command{
 			return
 		}
 
-		SuccessOutput(response.Machine, "Machine expired", output)
+		SuccessOutput(response.GetNode(), "Node expired", output)
 	},
 }
 
 var renameNodeCmd = &cobra.Command{
 	Use:   "rename NEW_NAME",
-	Short: "Renames a machine in your network",
+	Short: "Renames a node in your network",
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
 
@@ -272,17 +293,17 @@ var renameNodeCmd = &cobra.Command{
 		if len(args) > 0 {
 			newName = args[0]
 		}
-		request := &v1.RenameMachineRequest{
-			MachineId: identifier,
-			NewName:   newName,
+		request := &v1.RenameNodeRequest{
+			NodeId:  identifier,
+			NewName: newName,
 		}
 
-		response, err := client.RenameMachine(ctx, request)
+		response, err := client.RenameNode(ctx, request)
 		if err != nil {
 			ErrorOutput(
 				err,
 				fmt.Sprintf(
-					"Cannot rename machine: %s\n",
+					"Cannot rename node: %s\n",
 					status.Convert(err).Message(),
 				),
 				output,
@@ -291,7 +312,7 @@ var renameNodeCmd = &cobra.Command{
 			return
 		}
 
-		SuccessOutput(response.Machine, "Machine renamed", output)
+		SuccessOutput(response.GetNode(), "Node renamed", output)
 	},
 }
 
@@ -317,11 +338,11 @@ var deleteNodeCmd = &cobra.Command{
 		defer cancel()
 		defer conn.Close()
 
-		getRequest := &v1.GetMachineRequest{
-			MachineId: identifier,
+		getRequest := &v1.GetNodeRequest{
+			NodeId: identifier,
 		}
 
-		getResponse, err := client.GetMachine(ctx, getRequest)
+		getResponse, err := client.GetNode(ctx, getRequest)
 		if err != nil {
 			ErrorOutput(
 				err,
@@ -335,8 +356,8 @@ var deleteNodeCmd = &cobra.Command{
 			return
 		}
 
-		deleteRequest := &v1.DeleteMachineRequest{
-			MachineId: identifier,
+		deleteRequest := &v1.DeleteNodeRequest{
+			NodeId: identifier,
 		}
 
 		confirm := false
@@ -345,7 +366,7 @@ var deleteNodeCmd = &cobra.Command{
 			prompt := &survey.Confirm{
 				Message: fmt.Sprintf(
 					"Do you want to remove the node %s?",
-					getResponse.GetMachine().Name,
+					getResponse.GetNode().GetName(),
 				),
 			}
 			err = survey.AskOne(prompt, &confirm)
@@ -355,7 +376,7 @@ var deleteNodeCmd = &cobra.Command{
 		}
 
 		if confirm || force {
-			response, err := client.DeleteMachine(ctx, deleteRequest)
+			response, err := client.DeleteNode(ctx, deleteRequest)
 			if output != "" {
 				SuccessOutput(response, "", output)
 
@@ -386,7 +407,7 @@ var deleteNodeCmd = &cobra.Command{
 
 var moveNodeCmd = &cobra.Command{
 	Use:     "move",
-	Short:   "Move node to another namespace",
+	Short:   "Move node to another user",
 	Aliases: []string{"mv"},
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
@@ -402,11 +423,11 @@ var moveNodeCmd = &cobra.Command{
 			return
 		}
 
-		namespace, err := cmd.Flags().GetString("namespace")
+		user, err := cmd.Flags().GetString("user")
 		if err != nil {
 			ErrorOutput(
 				err,
-				fmt.Sprintf("Error getting namespace: %s", err),
+				fmt.Sprintf("Error getting user: %s", err),
 				output,
 			)
 
@@ -417,11 +438,11 @@ var moveNodeCmd = &cobra.Command{
 		defer cancel()
 		defer conn.Close()
 
-		getRequest := &v1.GetMachineRequest{
-			MachineId: identifier,
+		getRequest := &v1.GetNodeRequest{
+			NodeId: identifier,
 		}
 
-		_, err = client.GetMachine(ctx, getRequest)
+		_, err = client.GetNode(ctx, getRequest)
 		if err != nil {
 			ErrorOutput(
 				err,
@@ -435,12 +456,12 @@ var moveNodeCmd = &cobra.Command{
 			return
 		}
 
-		moveRequest := &v1.MoveMachineRequest{
-			MachineId: identifier,
-			Namespace: namespace,
+		moveRequest := &v1.MoveNodeRequest{
+			NodeId: identifier,
+			User:   user,
 		}
 
-		moveResponse, err := client.MoveMachine(ctx, moveRequest)
+		moveResponse, err := client.MoveNode(ctx, moveRequest)
 		if err != nil {
 			ErrorOutput(
 				err,
@@ -454,25 +475,78 @@ var moveNodeCmd = &cobra.Command{
 			return
 		}
 
-		SuccessOutput(moveResponse.Machine, "Node moved to another namespace", output)
+		SuccessOutput(moveResponse.GetNode(), "Node moved to another user", output)
+	},
+}
+
+var backfillNodeIPsCmd = &cobra.Command{
+	Use:   "backfillips",
+	Short: "Backfill IPs missing from nodes",
+	Long: `
+Backfill IPs can be used to add/remove IPs from nodes
+based on the current configuration of Headscale.
+
+If there are nodes that does not have IPv4 or IPv6
+even if prefixes for both are configured in the config,
+this command can be used to assign IPs of the sort to
+all nodes that are missing.
+
+If you remove IPv4 or IPv6 prefixes from the config,
+it can be run to remove the IPs that should no longer
+be assigned to nodes.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		var err error
+		output, _ := cmd.Flags().GetString("output")
+
+		confirm := false
+		prompt := &survey.Confirm{
+			Message: "Are you sure that you want to assign/remove IPs to/from nodes?",
+		}
+		err = survey.AskOne(prompt, &confirm)
+		if err != nil {
+			return
+		}
+		if confirm {
+			ctx, client, conn, cancel := getHeadscaleCLIClient()
+			defer cancel()
+			defer conn.Close()
+
+			changes, err := client.BackfillNodeIPs(ctx, &v1.BackfillNodeIPsRequest{Confirmed: confirm})
+			if err != nil {
+				ErrorOutput(
+					err,
+					fmt.Sprintf(
+						"Error backfilling IPs: %s",
+						status.Convert(err).Message(),
+					),
+					output,
+				)
+
+				return
+			}
+
+			SuccessOutput(changes, "Node IPs backfilled successfully", output)
+		}
 	},
 }
 
 func nodesToPtables(
-	currentNamespace string,
+	currentUser string,
 	showTags bool,
-	machines []*v1.Machine,
+	nodes []*v1.Node,
 ) (pterm.TableData, error) {
 	tableHeader := []string{
 		"ID",
 		"Hostname",
 		"Name",
+		"MachineKey",
 		"NodeKey",
-		"Namespace",
+		"User",
 		"IP addresses",
 		"Ephemeral",
 		"Last seen",
-		"Online",
+		"Expiration",
+		"Connected",
 		"Expired",
 	}
 	if showTags {
@@ -484,36 +558,46 @@ func nodesToPtables(
 	}
 	tableData := pterm.TableData{tableHeader}
 
-	for _, machine := range machines {
+	for _, node := range nodes {
 		var ephemeral bool
-		if machine.PreAuthKey != nil && machine.PreAuthKey.Ephemeral {
+		if node.GetPreAuthKey() != nil && node.GetPreAuthKey().GetEphemeral() {
 			ephemeral = true
 		}
 
 		var lastSeen time.Time
 		var lastSeenTime string
-		if machine.LastSeen != nil {
-			lastSeen = machine.LastSeen.AsTime()
+		if node.GetLastSeen() != nil {
+			lastSeen = node.GetLastSeen().AsTime()
 			lastSeenTime = lastSeen.Format("2006-01-02 15:04:05")
 		}
 
 		var expiry time.Time
-		if machine.Expiry != nil {
-			expiry = machine.Expiry.AsTime()
+		var expiryTime string
+		if node.GetExpiry() != nil {
+			expiry = node.GetExpiry().AsTime()
+			expiryTime = expiry.Format("2006-01-02 15:04:05")
+		} else {
+			expiryTime = "N/A"
+		}
+
+		var machineKey key.MachinePublic
+		err := machineKey.UnmarshalText(
+			[]byte(node.GetMachineKey()),
+		)
+		if err != nil {
+			machineKey = key.MachinePublic{}
 		}
 
 		var nodeKey key.NodePublic
-		err := nodeKey.UnmarshalText(
-			[]byte(headscale.NodePublicKeyEnsurePrefix(machine.NodeKey)),
+		err = nodeKey.UnmarshalText(
+			[]byte(node.GetNodeKey()),
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		var online string
-		if lastSeen.After(
-			time.Now().Add(-5 * time.Minute),
-		) { // TODO: Find a better way to reliably show if online
+		if node.GetOnline() {
 			online = pterm.LightGreen("online")
 		} else {
 			online = pterm.LightRed("offline")
@@ -527,36 +611,36 @@ func nodesToPtables(
 		}
 
 		var forcedTags string
-		for _, tag := range machine.ForcedTags {
+		for _, tag := range node.GetForcedTags() {
 			forcedTags += "," + tag
 		}
 		forcedTags = strings.TrimLeft(forcedTags, ",")
 		var invalidTags string
-		for _, tag := range machine.InvalidTags {
-			if !contains(machine.ForcedTags, tag) {
+		for _, tag := range node.GetInvalidTags() {
+			if !contains(node.GetForcedTags(), tag) {
 				invalidTags += "," + pterm.LightRed(tag)
 			}
 		}
 		invalidTags = strings.TrimLeft(invalidTags, ",")
 		var validTags string
-		for _, tag := range machine.ValidTags {
-			if !contains(machine.ForcedTags, tag) {
+		for _, tag := range node.GetValidTags() {
+			if !contains(node.GetForcedTags(), tag) {
 				validTags += "," + pterm.LightGreen(tag)
 			}
 		}
 		validTags = strings.TrimLeft(validTags, ",")
 
-		var namespace string
-		if currentNamespace == "" || (currentNamespace == machine.Namespace.Name) {
-			namespace = pterm.LightMagenta(machine.Namespace.Name)
+		var user string
+		if currentUser == "" || (currentUser == node.GetUser().GetName()) {
+			user = pterm.LightMagenta(node.GetUser().GetName())
 		} else {
-			// Shared into this namespace
-			namespace = pterm.LightYellow(machine.Namespace.Name)
+			// Shared into this user
+			user = pterm.LightYellow(node.GetUser().GetName())
 		}
 
 		var IPV4Address string
 		var IPV6Address string
-		for _, addr := range machine.IpAddresses {
+		for _, addr := range node.GetIpAddresses() {
 			if netip.MustParseAddr(addr).Is4() {
 				IPV4Address = addr
 			} else {
@@ -565,14 +649,16 @@ func nodesToPtables(
 		}
 
 		nodeData := []string{
-			strconv.FormatUint(machine.Id, headscale.Base10),
-			machine.Name,
-			machine.GetGivenName(),
+			strconv.FormatUint(node.GetId(), util.Base10),
+			node.GetName(),
+			node.GetGivenName(),
+			machineKey.ShortString(),
 			nodeKey.ShortString(),
-			namespace,
+			user,
 			strings.Join([]string{IPV4Address, IPV6Address}, ", "),
 			strconv.FormatBool(ephemeral),
 			lastSeenTime,
+			expiryTime,
 			online,
 			expired,
 		}
@@ -613,17 +699,17 @@ var tagCmd = &cobra.Command{
 		if err != nil {
 			ErrorOutput(
 				err,
-				fmt.Sprintf("Error retrieving list of tags to add to machine, %v", err),
+				fmt.Sprintf("Error retrieving list of tags to add to node, %v", err),
 				output,
 			)
 
 			return
 		}
 
-		// Sending tags to machine
+		// Sending tags to node
 		request := &v1.SetTagsRequest{
-			MachineId: identifier,
-			Tags:      tagsToSet,
+			NodeId: identifier,
+			Tags:   tagsToSet,
 		}
 		resp, err := client.SetTags(ctx, request)
 		if err != nil {
@@ -638,8 +724,8 @@ var tagCmd = &cobra.Command{
 
 		if resp != nil {
 			SuccessOutput(
-				resp.GetMachine(),
-				"Machine updated",
+				resp.GetNode(),
+				"Node updated",
 				output,
 			)
 		}

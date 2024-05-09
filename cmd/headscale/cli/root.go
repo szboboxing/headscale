@@ -5,17 +5,22 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/juanfont/headscale"
+	"github.com/juanfont/headscale/hscontrol/types"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/tcnksm/go-latest"
 )
 
+const (
+	deprecateNamespaceMessage = "use --user"
+)
+
 var cfgFile string = ""
 
 func init() {
-	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "mockoidc") {
+	if len(os.Args) > 1 &&
+		(os.Args[1] == "version" || os.Args[1] == "mockoidc" || os.Args[1] == "completion") {
 		return
 	}
 
@@ -33,33 +38,33 @@ func initConfig() {
 		cfgFile = os.Getenv("HEADSCALE_CONFIG")
 	}
 	if cfgFile != "" {
-		err := headscale.LoadConfig(cfgFile, true)
+		err := types.LoadConfig(cfgFile, true)
 		if err != nil {
 			log.Fatal().Caller().Err(err).Msgf("Error loading config file %s", cfgFile)
 		}
 	} else {
-		err := headscale.LoadConfig("", false)
+		err := types.LoadConfig("", false)
 		if err != nil {
 			log.Fatal().Caller().Err(err).Msgf("Error loading config")
 		}
 	}
 
-	cfg, err := headscale.GetHeadscaleConfig()
+	cfg, err := types.GetHeadscaleConfig()
 	if err != nil {
-		log.Fatal().Caller().Err(err)
+		log.Fatal().Err(err).Msg("Failed to read headscale configuration")
 	}
 
 	machineOutput := HasMachineOutputFlag()
 
 	zerolog.SetGlobalLevel(cfg.Log.Level)
 
-	// If the user has requested a "machine" readable format,
+	// If the user has requested a "node" readable format,
 	// then disable login so the output remains valid.
 	if machineOutput {
 		zerolog.SetGlobalLevel(zerolog.Disabled)
 	}
 
-	if cfg.Log.Format == headscale.JSONLogFormat {
+	if cfg.Log.Format == types.JSONLogFormat {
 		log.Logger = log.Output(os.Stdout)
 	}
 
@@ -73,7 +78,7 @@ func initConfig() {
 			res, err := latest.Check(githubTag, Version)
 			if err == nil && res.Outdated {
 				//nolint
-				fmt.Printf(
+				log.Warn().Msgf(
 					"An updated version of Headscale has been found (%s vs. your current %s). Check it out https://github.com/juanfont/headscale/releases\n",
 					res.Current,
 					Version,

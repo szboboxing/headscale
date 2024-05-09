@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/juanfont/headscale"
+	"github.com/juanfont/headscale/hscontrol/types"
+	"github.com/juanfont/headscale/hscontrol/util"
 	"github.com/spf13/viper"
 	"gopkg.in/check.v1"
 )
@@ -50,21 +51,21 @@ func (*Suite) TestConfigFileLoading(c *check.C) {
 	}
 
 	// Load example config, it should load without validation errors
-	err = headscale.LoadConfig(cfgFile, true)
+	err = types.LoadConfig(cfgFile, true)
 	c.Assert(err, check.IsNil)
 
 	// Test that config file was interpreted correctly
 	c.Assert(viper.GetString("server_url"), check.Equals, "http://127.0.0.1:8080")
-	c.Assert(viper.GetString("listen_addr"), check.Equals, "0.0.0.0:8080")
+	c.Assert(viper.GetString("listen_addr"), check.Equals, "127.0.0.1:8080")
 	c.Assert(viper.GetString("metrics_listen_addr"), check.Equals, "127.0.0.1:9090")
-	c.Assert(viper.GetString("db_type"), check.Equals, "sqlite3")
-	c.Assert(viper.GetString("db_path"), check.Equals, "/var/lib/headscale/db.sqlite")
+	c.Assert(viper.GetString("database.type"), check.Equals, "sqlite")
+	c.Assert(viper.GetString("database.sqlite.path"), check.Equals, "/var/lib/headscale/db.sqlite")
 	c.Assert(viper.GetString("tls_letsencrypt_hostname"), check.Equals, "")
 	c.Assert(viper.GetString("tls_letsencrypt_listen"), check.Equals, ":http")
 	c.Assert(viper.GetString("tls_letsencrypt_challenge_type"), check.Equals, "HTTP-01")
 	c.Assert(viper.GetStringSlice("dns_config.nameservers")[0], check.Equals, "1.1.1.1")
 	c.Assert(
-		headscale.GetFileMode("unix_socket_permission"),
+		util.GetFileMode("unix_socket_permission"),
 		check.Equals,
 		fs.FileMode(0o770),
 	)
@@ -93,21 +94,21 @@ func (*Suite) TestConfigLoading(c *check.C) {
 	}
 
 	// Load example config, it should load without validation errors
-	err = headscale.LoadConfig(tmpDir, false)
+	err = types.LoadConfig(tmpDir, false)
 	c.Assert(err, check.IsNil)
 
 	// Test that config file was interpreted correctly
 	c.Assert(viper.GetString("server_url"), check.Equals, "http://127.0.0.1:8080")
-	c.Assert(viper.GetString("listen_addr"), check.Equals, "0.0.0.0:8080")
+	c.Assert(viper.GetString("listen_addr"), check.Equals, "127.0.0.1:8080")
 	c.Assert(viper.GetString("metrics_listen_addr"), check.Equals, "127.0.0.1:9090")
-	c.Assert(viper.GetString("db_type"), check.Equals, "sqlite3")
-	c.Assert(viper.GetString("db_path"), check.Equals, "/var/lib/headscale/db.sqlite")
+	c.Assert(viper.GetString("database.type"), check.Equals, "sqlite")
+	c.Assert(viper.GetString("database.sqlite.path"), check.Equals, "/var/lib/headscale/db.sqlite")
 	c.Assert(viper.GetString("tls_letsencrypt_hostname"), check.Equals, "")
 	c.Assert(viper.GetString("tls_letsencrypt_listen"), check.Equals, ":http")
 	c.Assert(viper.GetString("tls_letsencrypt_challenge_type"), check.Equals, "HTTP-01")
 	c.Assert(viper.GetStringSlice("dns_config.nameservers")[0], check.Equals, "1.1.1.1")
 	c.Assert(
-		headscale.GetFileMode("unix_socket_permission"),
+		util.GetFileMode("unix_socket_permission"),
 		check.Equals,
 		fs.FileMode(0o770),
 	)
@@ -137,10 +138,10 @@ func (*Suite) TestDNSConfigLoading(c *check.C) {
 	}
 
 	// Load example config, it should load without validation errors
-	err = headscale.LoadConfig(tmpDir, false)
+	err = types.LoadConfig(tmpDir, false)
 	c.Assert(err, check.IsNil)
 
-	dnsConfig, baseDomain := headscale.GetDNSConfig()
+	dnsConfig, baseDomain := types.GetDNSConfig()
 
 	c.Assert(dnsConfig.Nameservers[0].String(), check.Equals, "1.1.1.1")
 	c.Assert(dnsConfig.Resolvers[0].Addr, check.Equals, "1.1.1.1")
@@ -172,7 +173,7 @@ noise:
 	writeConfig(c, tmpDir, configYaml)
 
 	// Check configuration validation errors (1)
-	err = headscale.LoadConfig(tmpDir, false)
+	err = types.LoadConfig(tmpDir, false)
 	c.Assert(err, check.NotNil)
 	// check.Matches can not handle multiline strings
 	tmp := strings.ReplaceAll(err.Error(), "\n", "***")
@@ -201,6 +202,6 @@ tls_letsencrypt_hostname: example.com
 tls_letsencrypt_challenge_type: TLS-ALPN-01
 `)
 	writeConfig(c, tmpDir, configYaml)
-	err = headscale.LoadConfig(tmpDir, false)
+	err = types.LoadConfig(tmpDir, false)
 	c.Assert(err, check.IsNil)
 }

@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/efekarakus/termcolor"
+	"github.com/jagottsicher/termcolor"
 	"github.com/juanfont/headscale/cmd/headscale/cli"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -34,7 +34,7 @@ func main() {
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{
-		Out:        os.Stdout,
+		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
 		NoColor:    !colors,
 	})

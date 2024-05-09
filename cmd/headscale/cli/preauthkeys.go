@@ -20,8 +20,14 @@ const (
 
 func init() {
 	rootCmd.AddCommand(preauthkeysCmd)
-	preauthkeysCmd.PersistentFlags().StringP("namespace", "n", "", "Namespace")
-	err := preauthkeysCmd.MarkPersistentFlagRequired("namespace")
+	preauthkeysCmd.PersistentFlags().StringP("user", "u", "", "User")
+
+	preauthkeysCmd.PersistentFlags().StringP("namespace", "n", "", "User")
+	pakNamespaceFlag := preauthkeysCmd.PersistentFlags().Lookup("namespace")
+	pakNamespaceFlag.Deprecated = deprecateNamespaceMessage
+	pakNamespaceFlag.Hidden = true
+
+	err := preauthkeysCmd.MarkPersistentFlagRequired("user")
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}
@@ -46,14 +52,14 @@ var preauthkeysCmd = &cobra.Command{
 
 var listPreAuthKeys = &cobra.Command{
 	Use:     "list",
-	Short:   "List the preauthkeys for this namespace",
+	Short:   "List the preauthkeys for this user",
 	Aliases: []string{"ls", "show"},
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
 
-		namespace, err := cmd.Flags().GetString("namespace")
+		user, err := cmd.Flags().GetString("user")
 		if err != nil {
-			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
+			ErrorOutput(err, fmt.Sprintf("Error getting user: %s", err), output)
 
 			return
 		}
@@ -63,7 +69,7 @@ var listPreAuthKeys = &cobra.Command{
 		defer conn.Close()
 
 		request := &v1.ListPreAuthKeysRequest{
-			Namespace: namespace,
+			User: user,
 		}
 
 		response, err := client.ListPreAuthKeys(ctx, request)
@@ -78,7 +84,7 @@ var listPreAuthKeys = &cobra.Command{
 		}
 
 		if output != "" {
-			SuccessOutput(response.PreAuthKeys, "", output)
+			SuccessOutput(response.GetPreAuthKeys(), "", output)
 
 			return
 		}
@@ -95,22 +101,15 @@ var listPreAuthKeys = &cobra.Command{
 				"Tags",
 			},
 		}
-		for _, key := range response.PreAuthKeys {
+		for _, key := range response.GetPreAuthKeys() {
 			expiration := "-"
 			if key.GetExpiration() != nil {
-				expiration = ColourTime(key.Expiration.AsTime())
-			}
-
-			var reusable string
-			if key.GetEphemeral() {
-				reusable = "N/A"
-			} else {
-				reusable = fmt.Sprintf("%v", key.GetReusable())
+				expiration = ColourTime(key.GetExpiration().AsTime())
 			}
 
 			aclTags := ""
 
-			for _, tag := range key.AclTags {
+			for _, tag := range key.GetAclTags() {
 				aclTags += "," + tag
 			}
 
@@ -119,7 +118,7 @@ var listPreAuthKeys = &cobra.Command{
 			tableData = append(tableData, []string{
 				key.GetId(),
 				key.GetKey(),
-				reusable,
+				strconv.FormatBool(key.GetReusable()),
 				strconv.FormatBool(key.GetEphemeral()),
 				strconv.FormatBool(key.GetUsed()),
 				expiration,
@@ -143,14 +142,14 @@ var listPreAuthKeys = &cobra.Command{
 
 var createPreAuthKeyCmd = &cobra.Command{
 	Use:     "create",
-	Short:   "Creates a new preauthkey in the specified namespace",
+	Short:   "Creates a new preauthkey in the specified user",
 	Aliases: []string{"c", "new"},
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
 
-		namespace, err := cmd.Flags().GetString("namespace")
+		user, err := cmd.Flags().GetString("user")
 		if err != nil {
-			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
+			ErrorOutput(err, fmt.Sprintf("Error getting user: %s", err), output)
 
 			return
 		}
@@ -162,11 +161,11 @@ var createPreAuthKeyCmd = &cobra.Command{
 		log.Trace().
 			Bool("reusable", reusable).
 			Bool("ephemeral", ephemeral).
-			Str("namespace", namespace).
+			Str("user", user).
 			Msg("Preparing to create preauthkey")
 
 		request := &v1.CreatePreAuthKeyRequest{
-			Namespace: namespace,
+			User:      user,
 			Reusable:  reusable,
 			Ephemeral: ephemeral,
 			AclTags:   tags,
@@ -208,7 +207,7 @@ var createPreAuthKeyCmd = &cobra.Command{
 			return
 		}
 
-		SuccessOutput(response.PreAuthKey, response.PreAuthKey.Key, output)
+		SuccessOutput(response.GetPreAuthKey(), response.GetPreAuthKey().GetKey(), output)
 	},
 }
 
@@ -225,9 +224,9 @@ var expirePreAuthKeyCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
-		namespace, err := cmd.Flags().GetString("namespace")
+		user, err := cmd.Flags().GetString("user")
 		if err != nil {
-			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
+			ErrorOutput(err, fmt.Sprintf("Error getting user: %s", err), output)
 
 			return
 		}
@@ -237,8 +236,8 @@ var expirePreAuthKeyCmd = &cobra.Command{
 		defer conn.Close()
 
 		request := &v1.ExpirePreAuthKeyRequest{
-			Namespace: namespace,
-			Key:       args[0],
+			User: user,
+			Key:  args[0],
 		}
 
 		response, err := client.ExpirePreAuthKey(ctx, request)

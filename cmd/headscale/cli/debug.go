@@ -7,11 +7,11 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
+	"tailscale.com/types/key"
 )
 
 const (
-	keyLength             = 64
-	errPreAuthKeyTooShort = Error("key too short, must be 64 hexadecimal characters")
+	errPreAuthKeyMalformed = Error("key is malformed. expected 64 hex characters with `nodekey` prefix")
 )
 
 // Error is used to compare errors as per https://dave.cheney.net/2016/04/07/constant-errors
@@ -27,8 +27,14 @@ func init() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}
-	createNodeCmd.Flags().StringP("namespace", "n", "", "Namespace")
-	err = createNodeCmd.MarkFlagRequired("namespace")
+	createNodeCmd.Flags().StringP("user", "u", "", "User")
+
+	createNodeCmd.Flags().StringP("namespace", "n", "", "User")
+	createNodeNamespaceFlag := createNodeCmd.Flags().Lookup("namespace")
+	createNodeNamespaceFlag.Deprecated = deprecateNamespaceMessage
+	createNodeNamespaceFlag.Hidden = true
+
+	err = createNodeCmd.MarkFlagRequired("user")
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}
@@ -51,13 +57,13 @@ var debugCmd = &cobra.Command{
 
 var createNodeCmd = &cobra.Command{
 	Use:   "create-node",
-	Short: "Create a node (machine) that can be registered with `nodes register <>` command",
+	Short: "Create a node that can be registered with `nodes register <>` command",
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
 
-		namespace, err := cmd.Flags().GetString("namespace")
+		user, err := cmd.Flags().GetString("user")
 		if err != nil {
-			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
+			ErrorOutput(err, fmt.Sprintf("Error getting user: %s", err), output)
 
 			return
 		}
@@ -87,11 +93,13 @@ var createNodeCmd = &cobra.Command{
 
 			return
 		}
-		if len(machineKey) != keyLength {
-			err = errPreAuthKeyTooShort
+
+		var mkey key.MachinePublic
+		err = mkey.UnmarshalText([]byte(machineKey))
+		if err != nil {
 			ErrorOutput(
 				err,
-				fmt.Sprintf("Error: %s", err),
+				fmt.Sprintf("Failed to parse machine key from flag: %s", err),
 				output,
 			)
 
@@ -109,24 +117,24 @@ var createNodeCmd = &cobra.Command{
 			return
 		}
 
-		request := &v1.DebugCreateMachineRequest{
-			Key:       machineKey,
-			Name:      name,
-			Namespace: namespace,
-			Routes:    routes,
+		request := &v1.DebugCreateNodeRequest{
+			Key:    machineKey,
+			Name:   name,
+			User:   user,
+			Routes: routes,
 		}
 
-		response, err := client.DebugCreateMachine(ctx, request)
+		response, err := client.DebugCreateNode(ctx, request)
 		if err != nil {
 			ErrorOutput(
 				err,
-				fmt.Sprintf("Cannot create machine: %s", status.Convert(err).Message()),
+				fmt.Sprintf("Cannot create node: %s", status.Convert(err).Message()),
 				output,
 			)
 
 			return
 		}
 
-		SuccessOutput(response.Machine, "Machine created", output)
+		SuccessOutput(response.GetNode(), "Node created", output)
 	},
 }

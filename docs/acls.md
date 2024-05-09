@@ -1,4 +1,15 @@
-# ACLs use case example
+Headscale implements the same policy ACLs as Tailscale.com, adapted to the self-hosted environment.
+
+For instance, instead of referring to users when defining groups you must
+use users (which are the equivalent to user/logins in Tailscale.com).
+
+Please check https://tailscale.com/kb/1018/acls/, and `./tests/acls/` in this repo for working examples.
+
+When using ACL's the User borders are no longer applied. All machines
+whichever the User have the ability to communicate with other hosts as
+long as the ACL's permits this exchange.
+
+## ACLs use case example
 
 Let's build an example use case for a small business (It may be the place where
 ACL's are the most useful).
@@ -29,18 +40,20 @@ servers.
 
 ## ACL setup
 
-Note: Namespaces will be created automatically when users authenticate with the
+Note: Users will be created automatically when users authenticate with the
 Headscale server.
 
 ACLs could be written either on [huJSON](https://github.com/tailscale/hujson)
 or YAML. Check the [test ACLs](../tests/acls) for further information.
 
 When registering the servers we will need to add the flag
-`--advertise-tags=tag:<tag1>,tag:<tag2>`, and the user (namespace) that is
+`--advertise-tags=tag:<tag1>,tag:<tag2>`, and the user that is
 registering the server should be allowed to do it. Since anyone can add tags to
 a server they can register, the check of the tags is done on headscale server
-and only valid tags are applied. A tag is valid if the namespace that is
+and only valid tags are applied. A tag is valid if the user that is
 registering it is allowed to do it.
+
+To use ACLs in headscale, you must edit your config.yaml file. In there you will find a `acl_policy_path: ""` parameter. This will need to point to your ACL file. More info on how these policies are written can be found [here](https://tailscale.com/kb/1018/acls/).
 
 Here are the ACL's to implement the same permissions as above:
 
@@ -164,8 +177,8 @@ Here are the ACL's to implement the same permissions as above:
       "dst": ["tag:dev-app-servers:80,443"]
     },
 
-    // We still have to allow internal namespaces communications since nothing guarantees that each user have
-    // their own namespaces.
+    // We still have to allow internal users communications since nothing guarantees that each user have
+    // their own users.
     { "action": "accept", "src": ["boss"], "dst": ["boss:*"] },
     { "action": "accept", "src": ["dev1"], "dst": ["dev1:*"] },
     { "action": "accept", "src": ["dev2"], "dst": ["dev2:*"] },

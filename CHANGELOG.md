@@ -1,14 +1,171 @@
 # CHANGELOG
 
-## 0.17.0 (2022-XX-XX)
+## 0.23.0 (2023-XX-XX)
+
+This release is mainly a code reorganisation and refactoring, significantly improving the maintainability of the codebase. This should allow us to improve further and make it easier for the maintainers to keep on top of the project.
+
+**Please remember to always back up your database between versions**
+
+#### Here is a short summary of the broad topics of changes:
+
+Code has been organised into modules, reducing use of global variables/objects, isolating concerns and “putting the right things in the logical place”.
+
+The new [policy](https://github.com/juanfont/headscale/tree/main/hscontrol/policy) and [mapper](https://github.com/juanfont/headscale/tree/main/hscontrol/mapper) package, containing the ACL/Policy logic and the logic for creating the data served to clients (the network “map”) has been rewritten and improved. This change has allowed us to finish SSH support and add additional tests throughout the code to ensure correctness.
+
+The [“poller”, or streaming logic](https://github.com/juanfont/headscale/blob/main/hscontrol/poll.go) has been rewritten and instead of keeping track of the latest updates, checking at a fixed interval, it now uses go channels, implemented in our new [notifier](https://github.com/juanfont/headscale/tree/main/hscontrol/notifier) package and it allows us to send updates to connected clients immediately. This should both improve performance and potential latency before a client picks up an update.
+
+Headscale now supports sending “delta” updates, thanks to the new mapper and poller logic, allowing us to only inform nodes about new nodes, changed nodes and removed nodes. Previously we sent the entire state of the network every time an update was due.
+
+While we have a pretty good [test harness](https://github.com/search?q=repo%3Ajuanfont%2Fheadscale+path%3A_test.go&type=code) for validating our changes, we have rewritten over [10000 lines of code](https://github.com/juanfont/headscale/compare/b01f1f1867136d9b2d7b1392776eb363b482c525...main) and bugs are expected. We need help testing this release. In addition, while we think the performance should in general be better, there might be regressions in parts of the platform, particularly where we prioritised correctness over speed.
+
+There are also several bugfixes that has been encountered and fixed as part of implementing these changes, particularly
+after improving the test harness as part of adopting [#1460](https://github.com/juanfont/headscale/pull/1460).
 
 ### BREAKING
 
-- Log level option `log_level` was moved to a distinct `log` config section and renamed to `level` [#768](https://github.com/juanfont/headscale/pull/768)
+- Code reorganisation, a lot of code has moved, please review the following PRs accordingly [#1473](https://github.com/juanfont/headscale/pull/1473)
+- Change the structure of database configuration, see [config-example.yaml](./config-example.yaml) for the new structure. [#1700](https://github.com/juanfont/headscale/pull/1700)
+  - Old structure has been remove and the configuration _must_ be converted.
+  - Adds additional configuration for PostgreSQL for setting max open, idle conection and idle connection lifetime.
+- API: Machine is now Node [#1553](https://github.com/juanfont/headscale/pull/1553)
+- Remove support for older Tailscale clients [#1611](https://github.com/juanfont/headscale/pull/1611)
+  - The latest supported client is 1.38
+- Headscale checks that _at least_ one DERP is defined at start [#1564](https://github.com/juanfont/headscale/pull/1564)
+  - If no DERP is configured, the server will fail to start, this can be because it cannot load the DERPMap from file or url.
+- Embedded DERP server requires a private key [#1611](https://github.com/juanfont/headscale/pull/1611)
+  - Add a filepath entry to [`derp.server.private_key_path`](https://github.com/juanfont/headscale/blob/b35993981297e18393706b2c963d6db882bba6aa/config-example.yaml#L95)
+- Docker images are now built with goreleaser (ko) [#1716](https://github.com/juanfont/headscale/pull/1716) [#1763](https://github.com/juanfont/headscale/pull/1763)
+  - Entrypoint of container image has changed from shell to headscale, require change from `headscale serve` to `serve`
+  - `/var/lib/headscale` and `/var/run/headscale` is no longer created automatically, see [container docs](./docs/running-headscale-container.md)
+- Prefixes are now defined per v4 and v6 range. [#1756](https://github.com/juanfont/headscale/pull/1756)
+  - `ip_prefixes` option is now `prefixes.v4` and `prefixes.v6`
+  - `prefixes.allocation` can be set to assign IPs at `sequential` or `random`. [#1869](https://github.com/juanfont/headscale/pull/1869)
 
 ### Changes
 
+- Use versioned migrations [#1644](https://github.com/juanfont/headscale/pull/1644)
+- Make the OIDC callback page better [#1484](https://github.com/juanfont/headscale/pull/1484)
+- SSH support [#1487](https://github.com/juanfont/headscale/pull/1487)
+- State management has been improved [#1492](https://github.com/juanfont/headscale/pull/1492)
+- Use error group handling to ensure tests actually pass [#1535](https://github.com/juanfont/headscale/pull/1535) based on [#1460](https://github.com/juanfont/headscale/pull/1460)
+- Fix hang on SIGTERM [#1492](https://github.com/juanfont/headscale/pull/1492) taken from [#1480](https://github.com/juanfont/headscale/pull/1480)
+- Send logs to stderr by default [#1524](https://github.com/juanfont/headscale/pull/1524)
+- Fix [TS-2023-006](https://tailscale.com/security-bulletins/#ts-2023-006) security UPnP issue [#1563](https://github.com/juanfont/headscale/pull/1563)
+- Turn off gRPC logging [#1640](https://github.com/juanfont/headscale/pull/1640) fixes [#1259](https://github.com/juanfont/headscale/issues/1259)
+- Added the possibility to manually create a DERP-map entry which can be customized, instead of automatically creating it. [#1565](https://github.com/juanfont/headscale/pull/1565)
+- Add support for deleting api keys [#1702](https://github.com/juanfont/headscale/pull/1702)
+- Add command to backfill IP addresses for nodes missing IPs from configured prefixes. [#1869](https://github.com/juanfont/headscale/pull/1869)
+- Log available update as warning [#1877](https://github.com/juanfont/headscale/pull/1877)
+- Add `autogroup:internet` to Policy [#1917](https://github.com/juanfont/headscale/pull/1917)
+
+## 0.22.3 (2023-05-12)
+
+### Changes
+
+- Added missing ca-certificates in Docker image [#1463](https://github.com/juanfont/headscale/pull/1463)
+
+## 0.22.2 (2023-05-10)
+
+### Changes
+
+- Add environment flags to enable pprof (profiling) [#1382](https://github.com/juanfont/headscale/pull/1382)
+  - Profiles are continously generated in our integration tests.
+- Fix systemd service file location in `.deb` packages [#1391](https://github.com/juanfont/headscale/pull/1391)
+- Improvements on Noise implementation [#1379](https://github.com/juanfont/headscale/pull/1379)
+- Replace node filter logic, ensuring nodes with access can see eachother [#1381](https://github.com/juanfont/headscale/pull/1381)
+- Disable (or delete) both exit routes at the same time [#1428](https://github.com/juanfont/headscale/pull/1428)
+- Ditch distroless for Docker image, create default socket dir in `/var/run/headscale` [#1450](https://github.com/juanfont/headscale/pull/1450)
+
+## 0.22.1 (2023-04-20)
+
+### Changes
+
+- Fix issue where systemd could not bind to port 80 [#1365](https://github.com/juanfont/headscale/pull/1365)
+
+## 0.22.0 (2023-04-20)
+
+### Changes
+
+- Add `.deb` packages to release process [#1297](https://github.com/juanfont/headscale/pull/1297)
+- Update and simplify the documentation to use new `.deb` packages [#1349](https://github.com/juanfont/headscale/pull/1349)
+- Add 32-bit Arm platforms to release process [#1297](https://github.com/juanfont/headscale/pull/1297)
+- Fix longstanding bug that would prevent "\*" from working properly in ACLs (issue [#699](https://github.com/juanfont/headscale/issues/699)) [#1279](https://github.com/juanfont/headscale/pull/1279)
+- Fix issue where IPv6 could not be used in, or while using ACLs (part of [#809](https://github.com/juanfont/headscale/issues/809)) [#1339](https://github.com/juanfont/headscale/pull/1339)
+- Target Go 1.20 and Tailscale 1.38 for Headscale [#1323](https://github.com/juanfont/headscale/pull/1323)
+
+## 0.21.0 (2023-03-20)
+
+### Changes
+
+- Adding "configtest" CLI command. [#1230](https://github.com/juanfont/headscale/pull/1230)
+- Add documentation on connecting with iOS to `/apple` [#1261](https://github.com/juanfont/headscale/pull/1261)
+- Update iOS compatibility and added documentation for iOS [#1264](https://github.com/juanfont/headscale/pull/1264)
+- Allow to delete routes [#1244](https://github.com/juanfont/headscale/pull/1244)
+
+## 0.20.0 (2023-02-03)
+
+### Changes
+
+- Fix wrong behaviour in exit nodes [#1159](https://github.com/juanfont/headscale/pull/1159)
+- Align behaviour of `dns_config.restricted_nameservers` to tailscale [#1162](https://github.com/juanfont/headscale/pull/1162)
+- Make OpenID Connect authenticated client expiry time configurable [#1191](https://github.com/juanfont/headscale/pull/1191)
+  - defaults to 180 days like Tailscale SaaS
+  - adds option to use the expiry time from the OpenID token for the node (see config-example.yaml)
+- Set ControlTime in Map info sent to nodes [#1195](https://github.com/juanfont/headscale/pull/1195)
+- Populate Tags field on Node updates sent [#1195](https://github.com/juanfont/headscale/pull/1195)
+
+## 0.19.0 (2023-01-29)
+
+### BREAKING
+
+- Rename Namespace to User [#1144](https://github.com/juanfont/headscale/pull/1144)
+  - **BACKUP your database before upgrading**
+- Command line flags previously taking `--namespace` or `-n` will now require `--user` or `-u`
+
+## 0.18.0 (2023-01-14)
+
+### Changes
+
+- Reworked routing and added support for subnet router failover [#1024](https://github.com/juanfont/headscale/pull/1024)
+- Added an OIDC AllowGroups Configuration options and authorization check [#1041](https://github.com/juanfont/headscale/pull/1041)
+- Set `db_ssl` to false by default [#1052](https://github.com/juanfont/headscale/pull/1052)
+- Fix duplicate nodes due to incorrect implementation of the protocol [#1058](https://github.com/juanfont/headscale/pull/1058)
+- Report if a machine is online in CLI more accurately [#1062](https://github.com/juanfont/headscale/pull/1062)
+- Added config option for custom DNS records [#1035](https://github.com/juanfont/headscale/pull/1035)
+- Expire nodes based on OIDC token expiry [#1067](https://github.com/juanfont/headscale/pull/1067)
+- Remove ephemeral nodes on logout [#1098](https://github.com/juanfont/headscale/pull/1098)
+- Performance improvements in ACLs [#1129](https://github.com/juanfont/headscale/pull/1129)
+- OIDC client secret can be passed via a file [#1127](https://github.com/juanfont/headscale/pull/1127)
+
+## 0.17.1 (2022-12-05)
+
+### Changes
+
+- Correct typo on macOS standalone profile link [#1028](https://github.com/juanfont/headscale/pull/1028)
+- Update platform docs with Fast User Switching [#1016](https://github.com/juanfont/headscale/pull/1016)
+
+## 0.17.0 (2022-11-26)
+
+### BREAKING
+
+- `noise.private_key_path` has been added and is required for the new noise protocol.
+- Log level option `log_level` was moved to a distinct `log` config section and renamed to `level` [#768](https://github.com/juanfont/headscale/pull/768)
+- Removed Alpine Linux container image [#962](https://github.com/juanfont/headscale/pull/962)
+
+### Important Changes
+
 - Added support for Tailscale TS2021 protocol [#738](https://github.com/juanfont/headscale/pull/738)
+- Add experimental support for [SSH ACL](https://tailscale.com/kb/1018/acls/#tailscale-ssh) (see docs for limitations) [#847](https://github.com/juanfont/headscale/pull/847)
+  - Please note that this support should be considered _partially_ implemented
+  - SSH ACLs status:
+    - Support `accept` and `check` (SSH can be enabled and used for connecting and authentication)
+    - Rejecting connections **are not supported**, meaning that if you enable SSH, then assume that _all_ `ssh` connections **will be allowed**.
+    - If you decied to try this feature, please carefully managed permissions by blocking port `22` with regular ACLs or do _not_ set `--ssh` on your clients.
+    - We are currently improving our testing of the SSH ACLs, help us get an overview by testing and giving feedback.
+  - This feature should be considered dangerous and it is disabled by default. Enable by setting `HEADSCALE_EXPERIMENTAL_FEATURE_SSH=1`.
+
+### Changes
+
 - Add ability to specify config location via env var `HEADSCALE_CONFIG` [#674](https://github.com/juanfont/headscale/issues/674)
 - Target Go 1.19 for Headscale [#778](https://github.com/juanfont/headscale/pull/778)
 - Target Tailscale v1.30.0 to build Headscale [#780](https://github.com/juanfont/headscale/pull/780)
@@ -24,6 +181,10 @@
 - Remove `ip_prefix` configuration option and warning [#899](https://github.com/juanfont/headscale/pull/899)
 - Add `dns_config.override_local_dns` option [#905](https://github.com/juanfont/headscale/pull/905)
 - Fix some DNS config issues [#660](https://github.com/juanfont/headscale/issues/660)
+- Make it possible to disable TS2019 with build flag [#928](https://github.com/juanfont/headscale/pull/928)
+- Fix OIDC registration issues [#960](https://github.com/juanfont/headscale/pull/960) and [#971](https://github.com/juanfont/headscale/pull/971)
+- Add support for specifying NextDNS DNS-over-HTTPS resolver [#940](https://github.com/juanfont/headscale/pull/940)
+- Make more sslmode available for postgresql connection [#927](https://github.com/juanfont/headscale/pull/927)
 
 ## 0.16.4 (2022-08-21)
 

@@ -1,5 +1,12 @@
 # Running headscale behind a reverse proxy
 
+!!! warning "Community documentation"
+
+    This page is not actively maintained by the headscale authors and is
+    written by community members. It is _not_ verified by `headscale` developers.
+
+    **It might be outdated and it might miss necessary steps**.
+
 Running headscale behind a reverse proxy is useful when running multiple applications on the same server, and you want to reuse the same external IP and port - usually tcp/443 for HTTPS.
 
 ### WebSockets
@@ -26,8 +33,7 @@ The following example configuration can be used in your nginx setup, substitutin
 
 ```Nginx
 map $http_upgrade $connection_upgrade {
-    default      keep-alive;
-    'websocket'  upgrade;
+    default      upgrade;
     ''           close;
 }
 
@@ -54,7 +60,7 @@ server {
         proxy_buffering off;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        proxy_set_header X-Forwarded-Proto $scheme;
         add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
     }
 }
@@ -97,4 +103,35 @@ spec:
             "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
             upgrade_configs:
               - upgrade_type: tailscale-control-protocol
+```
+
+## Caddy
+
+The following Caddyfile is all that is necessary to use Caddy as a reverse proxy for headscale, in combination with the `config.yaml` specifications above to disable headscale's built in TLS. Replace values as necessary - `<YOUR_SERVER_NAME>` should be the FQDN at which headscale will be served, and `<IP:PORT>` should be the IP address and port where headscale is running. In most cases, this will be `localhost:8080`.
+
+```
+<YOUR_SERVER_NAME> {
+    reverse_proxy <IP:PORT>
+}
+```
+
+Caddy v2 will [automatically](https://caddyserver.com/docs/automatic-https) provision a certficate for your domain/subdomain, force HTTPS, and proxy websockets - no further configuration is necessary.
+
+For a slightly more complex configuration which utilizes Docker containers to manage Caddy, Headscale, and Headscale-UI, [Guru Computing's guide](https://blog.gurucomputing.com.au/smart-vpns-with-headscale/) is an excellent reference.
+
+## Apache
+
+The following minimal Apache config will proxy traffic to the Headscale instance on `<IP:PORT>`. Note that `upgrade=any` is required as a parameter for `ProxyPass` so that WebSockets traffic whose `Upgrade` header value is not equal to `WebSocket` (i. e. Tailscale Control Protocol) is forwarded correctly. See the [Apache docs](https://httpd.apache.org/docs/2.4/mod/mod_proxy_wstunnel.html) for more information on this.
+
+```
+<VirtualHost *:443>
+	ServerName <YOUR_SERVER_NAME>
+
+	ProxyPreserveHost On
+	ProxyPass / http://<IP:PORT>/ upgrade=any
+
+	SSLEngine On
+	SSLCertificateFile <PATH_TO_CERT>
+	SSLCertificateKeyFile <PATH_CERT_KEY>
+</VirtualHost>
 ```

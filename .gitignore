@@ -1,3 +1,7 @@
+ignored/
+tailscale/
+.vscode/
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -12,8 +16,9 @@
 *.out
 
 # Dependency directories (remove the comment below to include it)
-# vendor/
+vendor/
 
+dist/
 /headscale
 config.json
 config.yaml
@@ -26,10 +31,17 @@ derp.yaml
 # Exclude Jetbrains Editors
 .idea
 
-test_output/ 
+test_output/
+control_logs/
 
 # Nix build output
 result
 .direnv/
 
 integration_test/etc/config.dump.yaml
+
+# MkDocs
+.cache
+/site
+
+__debug_bin

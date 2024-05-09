@@ -2,7 +2,7 @@
   description = "headscale - Open Source Tailscale Control server";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -21,7 +21,7 @@
       overlay = _: prev: let
         pkgs = nixpkgs.legacyPackages.${prev.system};
       in rec {
-        headscale = pkgs.buildGo119Module rec {
+        headscale = pkgs.buildGo122Module rec {
           pname = "headscale";
           version = headscaleVersion;
           src = pkgs.lib.cleanSource self;
@@ -31,62 +31,25 @@
 
           # When updating go.mod or go.sum, a new sha will need to be calculated,
           # update this if you have a mismatch after doing a change to thos files.
-          vendorSha256 = "sha256-Cq0WipTQ+kGcvnfP0kjyvjyonl2OC9W7Tj0MCuB1lDU=";
+          vendorHash = "sha256-HGu/OCtjzPeBki5FSL6v1XivCJ30eqj9rL0x7ZVv1TM=";
+
+          subPackages = ["cmd/headscale"];
 
           ldflags = ["-s" "-w" "-X github.com/juanfont/headscale/cmd/headscale/cli.Version=v${version}"];
         };
 
-        golines = pkgs.buildGoModule rec {
-          pname = "golines";
-          version = "0.11.0";
-
-          src = pkgs.fetchFromGitHub {
-            owner = "segmentio";
-            repo = "golines";
-            rev = "v${version}";
-            sha256 = "sha256-2K9KAg8iSubiTbujyFGN3yggrL+EDyeUCs9OOta/19A=";
-          };
-
-          vendorSha256 = "sha256-rxYuzn4ezAxaeDhxd8qdOzt+CKYIh03A9zKNdzILq18=";
-
-          nativeBuildInputs = [pkgs.installShellFiles];
-        };
-
-        golangci-lint = prev.golangci-lint.override {
-          # Override https://github.com/NixOS/nixpkgs/pull/166801 which changed this
-          # to buildGo118Module because it does not build on Darwin.
-          inherit (prev) buildGoModule;
-        };
-
-        # golangci-lint =
-        #   pkgs.buildGo117Module rec {
-        #     pname = "golangci-lint";
-        #     version = "1.46.2";
-        #
-        #     src = pkgs.fetchFromGitHub {
-        #       owner = "golangci";
-        #       repo = "golangci-lint";
-        #       rev = "v${version}";
-        #       sha256 = "sha256-7sDAwWz+qoB/ngeH35tsJ5FZUfAQvQsU6kU9rUHIHMk=";
-        #     };
-        #
-        #     vendorSha256 = "sha256-w38OKN6HPoz37utG/2QSPMai55IRDXCIIymeMe6ogIU=";
-        #
-        #     nativeBuildInputs = [ pkgs.installShellFiles ];
-        #   };
-
         protoc-gen-grpc-gateway = pkgs.buildGoModule rec {
           pname = "grpc-gateway";
-          version = "2.8.0";
+          version = "2.19.1";
 
           src = pkgs.fetchFromGitHub {
             owner = "grpc-ecosystem";
             repo = "grpc-gateway";
             rev = "v${version}";
-            sha256 = "sha256-8eBBBYJ+tBjB2fgPMX/ZlbN3eeS75e8TAZYOKXs6hcg=";
+            sha256 = "sha256-CdGQpQfOSimeio8v1lZ7xzE/oAS2qFyu+uN+H9i7vpo=";
           };
 
-          vendorSha256 = "sha256-AW2Gn/mlZyLMwF+NpK59eiOmQrYWW/9HPjbunYc9Ij4=";
+          vendorHash = "sha256-no7kZGpf/VOuceC3J+izGFQp5aMS3b+Rn+x4BFZ2zgs=";
 
           nativeBuildInputs = [pkgs.installShellFiles];
 
@@ -100,13 +63,25 @@
         overlays = [self.overlay];
         inherit system;
       };
-      buildDeps = with pkgs; [git go_1_19 gnumake];
+      buildDeps = with pkgs; [git go_1_22 gnumake];
       devDeps = with pkgs;
         buildDeps
         ++ [
           golangci-lint
           golines
           nodePackages.prettier
+          goreleaser
+          nfpm
+          gotestsum
+          gotests
+          ksh
+          ko
+          yq-go
+          ripgrep
+
+          # 'dot' is needed for pprof graphs
+          # go tool pprof -http=: <source>
+          graphviz
 
           # Protobuf dependencies
           protobuf
@@ -132,10 +107,32 @@
     in rec {
       # `nix develop`
       devShell = pkgs.mkShell {
-        buildInputs = devDeps;
+        buildInputs =
+          devDeps
+          ++ [
+            (pkgs.writeShellScriptBin
+              "nix-vendor-sri"
+              ''
+                set -eu
+
+                OUT=$(mktemp -d -t nar-hash-XXXXXX)
+                rm -rf "$OUT"
+
+                go mod vendor -o "$OUT"
+                go run tailscale.com/cmd/nardump --sri "$OUT"
+                rm -rf "$OUT"
+              '')
+
+            (pkgs.writeShellScriptBin
+              "go-mod-update-all"
+              ''
+                cat go.mod | ${pkgs.silver-searcher}/bin/ag "\t" | ${pkgs.silver-searcher}/bin/ag -v indirect | ${pkgs.gawk}/bin/awk '{print $1}' | ${pkgs.findutils}/bin/xargs go get -u
+                go mod tidy
+              '')
+          ];
 
         shellHook = ''
-          export GOFLAGS=-tags="integration,integration_general,integration_oidc,integration_cli,integration_derp"
+          export PATH="$PWD/result/bin:$PATH"
         '';
       };
 
@@ -144,14 +141,13 @@
         inherit headscale;
         inherit headscale-docker;
       };
-
       defaultPackage = pkgs.headscale;
 
       # `nix run`
       apps.headscale = flake-utils.lib.mkApp {
         drv = packages.headscale;
       };
-      defaultApp = apps.headscale;
+      apps.default = apps.headscale;
 
       checks = {
         format =
